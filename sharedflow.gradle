@@ -1,0 +1,79 @@
+import org.apache.tools.ant.filters.FixCrLfFilter
+import org.apache.tools.ant.filters.ReplaceTokens
+
+ext {
+    versionName = project.hasProperty('versionName') ? project.property('versionName') : ''
+    partnerName = (partnerName == 'SharedFlow') ? 'SharedFlows' : partnerName
+    organization = project.hasProperty('org') ? project.property('org') : ''
+    baseDir = project.hasProperty('baseDir') ? baseDir : System.getProperty('user.dir')
+    baseDir = (baseDir == '.') ? System.getProperty('user.dir') + File.separator : baseDir
+    pipelineName = System.getProperty('GO_PIPELINE_NAME') ? System.getProperty('GO_PIPELINE_NAME') : ''
+    pipelineCounter = System.getProperty('GO_PIPELINE_COUNTER') ? System.getProperty('GO_PIPELINE_COUNTER') : ''
+
+    buildVersion = ''
+	proxyXml = baseDir + File.separator + partnerName + File.separator + Name + File.separator + versionName + File.separator + Name + '.xml'
+}
+
+configurations {
+    scheduleRuntime
+}
+
+dependencies {
+    scheduleRuntime files(baseDir + File.separator + 'Utility' + File.separator + 'lib' + File.separator + 'ProcessArtifacts.jar')
+}
+
+task cleanSharedFlow() {
+	System.out.println("cleaning the sharedflow")
+	delete baseDir + File.separator + 'src/gateway'
+	def buildDir = new File(baseDir + File.separator + 'src/gateway' + File.separator + 'Sharedflow')
+	buildDir.mkdirs()
+}
+
+task copySharedFlow(type: Copy) {
+        from baseDir + File.separator + 'PipelineProxy' + File.separator 
+        into baseDir + File.separator + 'src/gateway' + File.separator + 'sharedflowbundle' + File.separator + 'sharedflowbundle'
+}
+
+task generateSharedFlowPackage(type: Zip) {
+	from baseDir + File.separator + 'src/gateway' + File.separator + 'sharedflowbundle'
+	include '*'
+	include '*/*'
+	include '*/*/*'
+	include '*/**'
+	archiveName Name + '.zip'
+	destinationDir(file(baseDir + File.separator + 'src' + File.separator + 'gateway' + File.separator))
+}
+
+task uploadSharedFlowToArtifactory(type:Exec) {
+	 executable 'curl'
+	args '-u', artifactory_user + ':' + artifactory_password, '-T', baseDir + File.separator + 'src/gateway' + File.separator + Name + '.zip', artifactory_contextUrl +  '/apigee-sharedflow-build/' + Name + '/' + Name + '.zip'
+}
+
+task deploySharedFlow(type:JavaExec) {
+	main = 'com.cloud5.UploadAndDeploy'
+    workingDir = baseDir + File.separator + 'src/gateway' + File.separator
+    classpath = configurations.scheduleRuntime
+    //args(app_host, app_port + '/itorix', baseDir + File.separator + Name + '.zip',  Name, org, env, username, password, isSaaS, 'SharedFlow')
+    args(app_host, app_port + '/itorix', app_username, app_password, app_workspaceId, baseDir + 'src/gateway' + File.separator + Name + '.zip',  Name, org, env, username, password, isSaaS, 'projectName', 'SharedFlow')
+
+}
+
+task promoteSharedFlow(type:JavaExec) {
+	main = 'com.cloud5.UploadAndDeploy'
+    workingDir = baseDir
+    classpath = configurations.scheduleRuntime
+    //args(app_host, app_port + '/itorix', baseDir + File.separator + 'PromoteBuild' + File.separator + Name + '.zip',  Name, org, env, username, password, isSaaS, 'SharedFlow')
+    //args(app_host, app_port + '/itorix', app_username, app_password, app_workspaceId, baseDir + Name + '.zip',  Name, org, env, username, password, isSaaS, 'projectName', 'SharedFlow')
+    args(app_host, app_port + '/itorix', app_username, app_password, app_workspaceId, System.getProperty('user.dir') + File.separator + 'PromoteBuild' + File.separator + Name + '.zip',  Name, org, env, username, password, isSaaS, 'projectName', 'SharedFlow')
+
+}
+
+
+copySharedFlow.dependsOn cleanSharedFlow
+generateSharedFlowPackage.dependsOn copySharedFlow
+deploySharedFlow.dependsOn generateSharedFlowPackage
+
+promoteSharedFlow
+
+//uploadSharedFlowToArtifactory.dependsOn generateSharedFlowPackage
+//deploySharedFlow.dependsOn uploadSharedFlowToArtifactory

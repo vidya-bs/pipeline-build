@@ -1,0 +1,17 @@
+task copyPipelineDir(type: Copy) {
+	doFirst {
+		println 'Copy Started'
+	}
+
+	from System.getProperty('user.dir') + File.separator + 'PipelineProxy'
+	into System.getProperty('user.dir')
+	exclude '.gradle/**'
+
+	from System.getProperty('user.dir') + File.separator + 'PipelineBuild'
+	into System.getProperty('user.dir')
+	exclude '.gradle/**'
+	
+	doLast {
+		println 'Copy Completed'
+	}
+}

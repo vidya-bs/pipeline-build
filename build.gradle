@@ -1,0 +1,214 @@
+import org.apache.tools.ant.filters.FixCrLfFilter
+import org.apache.tools.ant.filters.ReplaceTokens
+
+ext {
+    versionName = project.hasProperty('versionName') ? project.property('versionName') : ''
+    partnerName = (partnerName == 'SharedFlow') ? 'SharedFlows' : partnerName
+    organization = project.hasProperty('org') ? project.property('org') : ''
+    baseDir = project.hasProperty('baseDir') ? baseDir : System.getProperty('user.dir')
+    baseDir = (baseDir == '.') ? System.getProperty('user.dir') + File.separator : baseDir
+    revision = project.hasProperty('revision') ? revision : ''
+    unitTestThresholdPercentage = project.hasProperty('unitTestThresholdPercentage') ? unitTestThresholdPercentage : '50'
+    codeCoverageThresholdPercentage = project.hasProperty('codeCoverageThresholdPercentage') ? codeCoverageThresholdPercentage : '50'
+    skipUnitTests = project.hasProperty('skipUnitTests') ? 'true' : 'false'
+    skipCodeCoverage = project.hasProperty('skipCodeCoverage') ? 'true' : 'false'
+    pipelineLabel = System.getenv('GO_PIPELINE_LABEL') ? System.getenv('GO_PIPELINE_LABEL') : ''
+    testSuiteId = project.hasProperty('testSuiteId') ? testSuiteId : ''
+    configId = project.hasProperty('configId') ? configId : ''
+    isTestSuite = project.hasProperty('isTestSuite') ?  project.hasProperty('isTestSuite') : false
+    pipelineName = System.getenv('GO_PIPELINE_NAME') ? System.getenv('GO_PIPELINE_NAME') : ''
+    pipelineCounter = System.getenv('GO_PIPELINE_COUNTER') ? System.getenv('GO_PIPELINE_COUNTER') : ''
+    artifactType = project.hasProperty('artifactType') ? project.property('artifactType') : ''
+    projectName = project.hasProperty('projectName') ? project.property('projectName') : ''
+
+
+
+    if(partnerName != 'SharedFlows') {
+    		proxyXml = baseDir + File.separator + partnerName + File.separator + Name + 'Proxy.xml'
+    } else {
+	    	proxyXml = baseDir + File.separator + partnerName + File.separator + Name + File.separator + Name + '.xml'
+    }
+}
+
+configurations {
+    scheduleRuntime
+    apply plugin: 'java'
+    sourceCompatibility = 1.8
+    targetCompatibility = 1.8
+}
+
+dependencies {
+    scheduleRuntime files("." + File.separator + 'Utility' + File.separator + 'lib' + File.separator + 'ProcessArtifacts.jar')
+}
+
+task replaceProxyDesc(type: Copy) {
+	from baseDir + Name + File.separator + partnerName + File.separator + Name + 'Proxy.xml'
+	into baseDir + Name  + File.separator
+	filter { String line ->
+        line.replaceAll('\\s','').endsWith('</Description>') ? '<Description>' + line.replaceAll('<Description>','').replaceAll('</Description>','').trim() + '-Built by Itorix-' + pipelineLabel + '</Description>' : line
+    }
+    filteringCharset = 'UTF-8'
+}
+
+task replaceProxyDescFile(type: Copy) {
+    from baseDir + Name + File.separator + Name + 'Proxy.xml'
+    into baseDir + Name  + File.separator + partnerName
+}
+
+task processArtifacts(type: JavaExec) {
+	main = 'com.cloud5.ProcessProxyArtifacts'
+    workingDir = baseDir + Name + File.separator + 'apiproxy'
+    classpath = configurations.scheduleRuntime
+    args(app_host, app_port + '/itorix', app_username, app_password, app_workspaceId, Name, workingDir, isSaaS, projectName)
+    doLast {
+        println 'processArtifacts Completed'
+    }
+}
+
+task verifyArtifacts(type: JavaExec) {
+	main = 'com.cloud5.VerifyArtifacts'
+  println 'inside verifyArtifacts'
+    workingDir = baseDir + Name + File.separator + 'apiproxy'
+    classpath = configurations.scheduleRuntime
+    args(app_host, app_port + '/itorix', Name, username, password, org, env,  System.getProperty('user.dir') + File.separator + baseDir, isSaaS, projectName)
+        doLast {
+        def text = new File(System.getProperty('user.dir') + File.separator + baseDir + 'status').getText('UTF-8');
+        if(text != '0') {
+            throw new GradleException('Error while verifying artifacts in Apigee... Please check whether the artifacts are available in Apigee...')
+        }
+    }
+}
+
+task verifyArtifactsNextStage(type: JavaExec) {
+	main = 'com.cloud5.VerifyArtifacts'
+    workingDir = baseDir + Name + File.separator + 'apiproxy'
+    classpath = configurations.scheduleRuntime
+    args(app_host, app_port + '/itorix', Name, username, password, org, env,  System.getProperty('user.dir') + File.separator + baseDir, isSaaS, projectName)
+        doLast {
+        def text = new File(System.getProperty('user.dir') + File.separator + baseDir + 'status').getText('UTF-8');
+        if(text != '0') {
+            throw new GradleException('Error while verifying artifacts in Apigee... Please check whether the artifacts are available in Apigee...')
+        }
+    }
+}
+
+task buildProxy(type: Zip) {
+	from baseDir + Name + File.separator
+	include '*'
+	include '*/*'
+	include '*/*/*'
+	include '*/*/*/*'
+	archiveName Name + ".zip"
+	destinationDir(file(baseDir + File.separator))
+}
+
+task publishProxy(type:Exec) {
+	executable 'curl'
+	args '-u', artifactory_user + ':' + artifactory_password, '-T', baseDir + Name + '.zip', artifactory_contextUrl +  '/apigee-proxy-build/' + pipelineName + '/' + pipelineCounter + '/' + Name + versionName + '.zip'
+}
+
+task deployProxy(type:JavaExec) {
+	main = 'com.cloud5.UploadAndDeploy'
+    workingDir = baseDir + Name
+    classpath = configurations.scheduleRuntime
+    args(app_host, app_port + '/itorix', app_username, app_password, app_workspaceId, System.getProperty('user.dir') + File.separator + baseDir + Name + '.zip',  Name, org, env, username, password, isSaaS, projectName)
+}
+
+task retrieveCurrentProxyVersion(type: JavaExec) {
+	main = 'com.cloud5.ProxyVersion'
+    workingDir = baseDir + Name
+    classpath = configurations.scheduleRuntime
+    args(app_host, app_port + '/itorix', app_username, app_password, app_workspaceId, Name, org, env, username, password, System.getProperty('user.dir'), isSaaS, projectName)
+}
+
+task executeUnitTestCases(type: JavaExec) {
+	main = 'com.cloud5.ExecuteUnitTests'
+    workingDir = baseDir
+    classpath = configurations.scheduleRuntime
+    args("-Dhost=" + app_host,
+    "-Dport=" + app_port + '/itorix',
+    "-Dorg=" + org,
+    "-Denv=" + env,
+    "-Dproxy=" + Name,
+    "-Dpass=" + unitTestThresholdPercentage,
+    "-Dpath=" + System.getProperty('user.dir'),
+    "-DisSAAS=" + isSaaS,
+    "-DtestSuiteId=" + testSuiteId,
+    "-DconfigId=" + configId,
+    "-Dusername=" + app_username,
+    "-Dpassword=" + app_password,
+    "-DworkspaceId=" + app_workspaceId,
+    "-DartifactType=" + artifactType,
+    "-DprojectName=" + projectName)
+    doLast {
+    	def text = new File(System.getProperty('user.dir') + File.separator + env + 'unitTestStatus').getText('UTF-8');
+    	if(text == 'pass') {
+    		publishOldVersion.enabled = false
+    	} else {
+    		throw new GradleException('Attn:::::::: Current build did not meet the threshold percentage for unit test cases. Reverting back to previous version')
+    	}
+    }
+}
+
+task executeCodeCoverage(type: JavaExec) {
+	main = 'com.cloud5.ExecuteCodeCoverage'
+    workingDir = baseDir
+    classpath = configurations.scheduleRuntime
+    //codeCoverageThresholdPercentage
+    args("-Dhost=" + app_host,
+    "-Dport=" + app_port + '/itorix',
+    "-Dorg=" + org,
+    "-Denv=" + env,
+    "-Dproxy=" + Name,
+    "-Dpass=" + unitTestThresholdPercentage,
+    "-Dpath=" + System.getProperty('user.dir'),
+    "-DisSAAS=" + isSaaS,
+    "-DtestSuiteId=" + testSuiteId,
+    "-DconfigId=" + configId,
+    "-Dusername=" + app_username,
+    "-Dpassword=" + app_password,
+    "-DworkspaceId=" + app_workspaceId,
+    "-DapigeeUserName=" + username,
+    "-DapigeePassword=" + password,
+    "-DprojectName=" + projectName)
+    doLast {
+    	def text = new File(System.getProperty('user.dir') + File.separator + env +'codeCoverageStatus').getText('UTF-8');
+    	if(text == 'pass') {
+    		publishOldVersion.enabled = false
+    	} else {
+    	   	throw new GradleException('Attn:::::::: Current build did not meet the threshold percentage for code coverage. Reverting back to previous version')
+    	}
+    }
+}
+
+task publishOldVersion(type: JavaExec) {
+	main = 'com.cloud5.DeployRevision'
+	workingDir = baseDir
+	classpath = configurations.scheduleRuntime
+	args(app_host, app_port + '/itorix', app_username, app_password, app_workspaceId, Name, org, env, System.getProperty('user.dir') + File.separator + env + 'version', username, password, isSaaS, projectName)
+}
+
+task checkArtifacts(type: JavaExec) {
+	main = 'com.cloud5.VerifyArtifacts'
+    workingDir = baseDir
+    args(app_host, app_port + '/itorix', Name, username, password, org, env, baseDir + File.separator + 'deploy' + File.separator, isSaaS, projectName)
+}
+
+task promoteDeployment(type:JavaExec) {
+	main = 'com.cloud5.UploadAndDeploy'
+    workingDir = baseDir
+    classpath = configurations.scheduleRuntime
+    args(app_host, app_port + '/itorix', app_username, app_password, app_workspaceId, System.getProperty('user.dir') + File.separator + 'PromoteBuild' + File.separator + Name + '.zip',  Name, org, env, username, password, isSaaS, projectName)
+}
+
+replaceProxyDescFile.dependsOn replaceProxyDesc
+processArtifacts.dependsOn replaceProxyDescFile
+buildProxy.dependsOn processArtifacts
+
+//publishProxy.dependsOn retrieveCurrentProxyVersion
+//verifyArtifacts.dependsOn retrieveCurrentProxyVersion
+//deployProxy.dependsOn verifyArtifacts
+deployProxy.dependsOn retrieveCurrentProxyVersion
+
+//promoteDeployment.dependsOn verifyArtifactsNextStage
+promoteDeployment
